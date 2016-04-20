@@ -1,5 +1,5 @@
 ;bootable zpage seek/read
-;copyright (c) Peter Ferrie 2015
+;copyright (c) Peter Ferrie 2015-16
 ;thanks to 4am for inspiration and testing
 ;assemble using ACME
 !cpu 6502
@@ -8,7 +8,8 @@
         tracks    = $d1         ;user-defined
         address   = $d1         ;user-defined
         entry     = $d1d1       ;user-defined
-        version   = 1
+        sectors   = $00         ;user-defined, sectors to load from partial track (increase tracks first)
+        version   = 2
 
         ;memory usage:
         ;256 bytes ($200-2FF) static table
@@ -62,17 +63,35 @@
         bne     +               ;branch always
 *=$839
         jsr     preread
+        lda     #>(entry-1)
+        pha
+        lda     #<(entry-1)
+        pha
+        ldx     #<((tracks*16)+sectors)
+        lda     #address
         jmp     $bf00           ;DOS 3.3 launcher entrypoint
 
         ;build read/seek call-sequence per track
-
 +
+!if sectors>0 {
+        txa
+        pha
+        lda     #<initsec
+        pha
+        txa
+        clc
+        bcc     ++
+}
+
 -       txa
         bcc     +               ;set initially by LSR above
         pha
         pha
         !byte   $c9             ;CMP masks SEC, clears carry on even rounds
 +       sec                     ;SEC is reached on odd rounds
+!if sectors>0 {
+++
+}
         pha
         lda     #<(seek-1)
         pha                     ;push seek twice for two phases
@@ -143,6 +162,11 @@ count
 
 inittrk
         ldx     #$f0
+initsec
+!if sectors>0 {
+        !byte   $2c
+        ldx     #<(-sectors)
+}
         stx     <count
 rdpage
         lda     #address

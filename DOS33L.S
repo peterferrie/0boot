@@ -1,0 +1,37 @@
+;0boot DOS 3.3 launcher support
+;copyright (c) Peter Ferrie 2016
+;assemble using ACME
+!cpu 6502
+!to "dos33l",plain
+;place on sector 1
+*=$BF00
+        stx     sectors
+        sta     address
+index   ldy     #0
+-       lda     xlatsec, y
+        sta     sector
+        lda     #>iocb
+        ldy     #<iocb
+        jsr     $bd00
+        ldy     index + 1
+        iny
+        tya
+        and     #$0f
+        sta     index + 1
+        tay
+        bne     +
+        inc     track
++       inc     address
+        dec     sectors
+        bne     -
+        rts
+
+sectors !byte   $d1
+xlatsec !byte   0, 7, $e, 6, $d, 5, $c, 4, $b, 3, $a, 2, 9, 1, 8, $f
+iocb    !byte   1, $60, 1, 0
+track   !byte   1
+sector  !byte   0
+        !byte   <dct, >dct, 0
+address !byte   0
+        !byte   0, 0, 1, 0, 0, $60, 1
+dct     !byte   1, $ef, $d8, 0
