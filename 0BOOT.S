@@ -89,6 +89,7 @@
         lda     #<initsec
         pha
         txa
+        clc
         bcc     ++
 }
 
