@@ -1,43 +1,33 @@
-;license:BSD-3-Clause
 ;bootable zpage seek/read
-;copyright (c) Peter Ferrie 2015-16, 2018
+;copyright (c) Peter Ferrie 2015-16
 ;thanks to 4am for inspiration and testing
 ;assemble using ACME
 !cpu 6502
 !to "0boot",plain
 *=$800
         tracks    = $d1         ;user-defined
-        first_trk = $01         ;user-defined
-        address   = $d1         ;user-defined, high byte of first page
+        address   = $d1         ;user-defined
         entry     = $d1d1       ;user-defined
-        sectors   = $00         ;user-defined, sectors to load from partial track (increase tracks count first)
-        interleave= 0           ;user-defined, to retain .dsk sector ordering
-        multi_regn= 0           ;user-defined, load to non-sequential addresses
-        !if multi_regn=1 {
-          !macro region {region !byte $d1,0,$d1,0,$d1,0,$d1,0,$d1,0,$d1,0,$d1,0,$d1,0,$d1,0,$d1,0,$d1,0,$d1,0}
-                                ;user-defined
-                                ;assign every '$d1' from left
-                                ;for track with alternative address
-                                ;or zero to continue from last address
-                                ;beginning with second track
-                                ;array size = tracks*2
-        }
-        version   = 3
+        sectors   = $00         ;user-defined, sectors to load from partial track (increase tracks first)
+        version   = 2
 
         ;memory usage:
         ;256 bytes ($200-2FF) static table
         grouped   = $200
-        ;106 bytes ($36C-3D5) static table
-        preshift  = $36C
-        ;86 bytes ($300-355) dynamic table (2-bit array)
-        bit2tbl   = $300
+        ;106 bytes ($300-369) static table
+        preshift  = $300
+        ;86 bytes ($36A-3BF) dynamic table (2-bit array)
+        bit2tbl   = $36a
 
         !byte   1               ;we'll read the other one ourselves
         lsr                     ;check sector number
         bne     +               ;branch if not 1
         inc     $3d             ;increment sector (faster to find)
         txa
-        jsr     $f87b
+        lsr
+        lsr
+        lsr
+        lsr
         ora     #$c0            ;slot to PROM base
         pha
         lda     #$5b            ;read-1
@@ -64,51 +54,39 @@
         sta     <(slotpatch6+1)
         ora     #8              ;MOTOROFF
         sta     <(slotpatch8+1)
-!if interleave=1 {
-        ldx     #$0f
-        txs
--       lda     sectbl, x
-        pha
-        dex
-        bpl     -
-}
-        lda     #>(entry-1)
-        pha
-        lda     #<(entry-1)
-        pha
         ldx     #(stackend-addrtbl)
 -       lda     <(addrtbl-1), x
         pha                     ;copy stack frame
         dex
         bne     -
         ldy     #<(tracks*2)
+        bne     +               ;branch always
+*=$839
+        jsr     preread
+        lda     #>(entry-1)
+        pha
+        lda     #<(entry-1)
+        pha
+        ldx     #<((tracks*16)+sectors)
+        lda     #address
+        jmp     $bf00           ;DOS 3.3 launcher entrypoint
 
+        ;build read/seek call-sequence per track
++
 !if sectors>0 {
         txa
         pha
         lda     #<initsec
         pha
         txa
+        clc
         bcc     ++
 }
 
 -       txa
         bcc     +               ;set initially by LSR above
-!if multi_regn=1 {
-        lda     region-2, y
-        beq     no_region
-        pha
-        txa
-        pha
-        lda     #<(set_address-1)
-        pha
-        txa
-
-no_region
-}
         pha
         pha
-
         !byte   $c9             ;CMP masks SEC, clears carry on even rounds
 +       sec                     ;SEC is reached on odd rounds
 !if sectors>0 {
@@ -120,28 +98,31 @@ no_region
         dey
         bne     -
 
-!if first_trk>1 {
-        ldy     #((first_trk-1)*2)
--       txa
-        pha
-        lda     #<(seek-1)
-        pha                     ;push seek twice for two phases
-        dey
-        bne     -
-}
-
         ;construct denibbilisation table
         ;pre-shifted for interleave read
 
-        ldx     #$6a
--       asl     preshift-1,x
-        asl     preshift-1,x
-        dex
+        ldx     #$40
+--      ldy     <(tmpval+1)
+        tya
+        asl
+        bit     <(tmpval+1)
+        beq     +
+        ora     <(tmpval+1)
+        eor     #$ff
+        and     #$7e
+-       bcs     +
+        lsr
         bne     -
+        dex
+        txa
+        asl
+        asl
+        sta     preshift-$16, y
++       dec     <(tmpval+1)
+        bne     --
 
         ;construct 2-bit group table
 
-        iny
 --      lsr     <(curtrk+1)
         lsr     <(curtrk+1)
 -       lda     <indextbl, x
@@ -167,14 +148,8 @@ no_region
 preread         ;must exit with carry set!
         rts
 
-!if interleave=1 {
-sectbl !byte 0,7,$e,6,$d,5,$c,4,$b,3,$a,2,9,1,8,$f
-}
-!if multi_regn=1 {
-+region
-}
-
-*=$900
+*=$8fe
+        !byte   $be, 1
 
 ;the following lives on sector $0E
 !pseudopc 0 {
@@ -199,6 +174,7 @@ rdpage
         inc     <(rdpage+1)
         inx
         bne     rdpage
+
 read
 --	jsr	readnib
 -       cmp     #$d5
@@ -221,11 +197,8 @@ read
         and     <(sector+1)
         dey
         bpl     -
-!if interleave=1 {
-        tax
-        ldy     $100, x
-}
-        sty     <(sector+1)     ;store index for later
+        sta     <(sector+1)     ;store index for later
+        tay
         ldx     <addrtbl, y     ;fetch corresponding address
         stx     <(adrpatch6+2)
         dex
@@ -245,7 +218,7 @@ slotpatch1
         lda     preshift-$96, x
         sta     bit2tbl-$aa, y  ;store 2-bit array
 tmpval
-        eor     #0
+        eor     #$7f            ;constant used in table init, self-mod later
         iny
         bne     --
         ldy     #$aa
@@ -316,26 +289,21 @@ setdelay
         lda     #$d1
         jmp     wait
 
-driveoff
-        ;place post-read routine here
-
-slotpatch8
-        lda     $c0d1
-
-        ;fall through
-
 readnib
 slotpatch7
 -       lda     $c0d1
         bpl     -
         rts
 
-!if multi_regn=1 {
-set_address
-        pla
-        sta     rdpage+1
-        rts
-}
+driveoff
+slotpatch8
+        lda     $c0d1
+
+        ;place post-read routine here
+        ;must end before $ed
+
+seekret         ;shhhh
+        jmp     entry
 
 addrtbl
         !word   $fe89-1, $fe93-1, driveoff-1
@@ -344,7 +312,4 @@ patchtbl
         !byte   <(slotpatch1+1), <(slotpatch2+1), <(slotpatch3+1), <(slotpatch4+1), <(slotpatch5+1), <(slotpatch7+1)
 indextbl        ;the 0 also terminates the patchtbl list!
         !byte   0, 2, 1, 3
-!if (addrtbl+$10)>$ff {
-  !serious "code is too large, ends at *"
-}
 }

@@ -1,10 +1,12 @@
 fast bootable Read Track/Sector routine.
-- targets single-loaders in ProDOS order
+- targets single-loaders in either ProDOS or DOS (v3 only) order
 - load from any slot
 - scatter-reads sectors
 - full-track read in one revolution
+- can read tracks to non-sequential addresses (v3 only)
 - runs entirely from zpage
 - can load up to 11 complete tracks
 - can load up to 12 additional sectors ($0400-bfff)
-- DOS 3.3 Launcher compatible
+- DOS 3.3 Launcher compatible (v2 only)
+- supports pre- and post-read routines
 - requires only 3 pages in memory
