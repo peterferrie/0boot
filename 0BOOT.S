@@ -225,6 +225,8 @@ read
 !if interleave=1 {
         tax
         ldy     $100, x
+} else {
+        tay
 }
         sty     <(sector+1)     ;store index for later
         ldx     <addrtbl, y     ;fetch corresponding address
